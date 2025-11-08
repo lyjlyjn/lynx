@@ -1,0 +1,60 @@
+version: '3.8'
+
+services:
+  clouddrive-stream:
+    build: .
+    container_name: clouddrive-stream
+    ports:
+      - "8000:8000"
+    volumes:
+      # Mount your CloudDrive2 directory here
+      - /path/to/clouddrive:/mnt/clouddrive:ro
+      # Persist logs
+      - ./logs:/app/logs
+    environment:
+      # Application settings
+      - APP_NAME=CloudDrive2 Media Streaming
+      - DEBUG=False
+      - HOST=0.0.0.0
+      - PORT=8000
+      
+      # CloudDrive2 path (inside container)
+      - CLOUDDRIVE_MOUNT_PATH=/mnt/clouddrive
+      
+      # Security (change these!)
+      - SECRET_KEY=your-secret-key-change-this-in-production
+      
+      # Optional: Enable authentication
+      # - AUTH_USERNAME=admin
+      # - AUTH_PASSWORD=secure_password
+      
+      # Cache settings
+      - CACHE_ENABLED=True
+      - CACHE_TTL=300
+      
+      # Streaming settings
+      - CHUNK_SIZE=1048576
+      - ENABLE_RANGE_REQUESTS=True
+      
+      # Logging
+      - LOG_LEVEL=INFO
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+
+  # Optional: Redis for distributed caching
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: clouddrive-redis
+  #   ports:
+  #     - "6379:6379"
+  #   volumes:
+  #     - redis-data:/data
+  #   restart: unless-stopped
+
+# volumes:
+#   redis-data:

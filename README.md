@@ -2,6 +2,8 @@
 
 A high-performance Python streaming media application for CloudDrive2 mounted Google Drive files with HTTP Range request support.
 
+> 📖 **中文使用指南**: [USAGE_CN.md](USAGE_CN.md) - 详细的中文使用说明
+
 ## Overview
 
 This application provides a robust solution for streaming large files from CloudDrive2 mounted Google Drive without disconnections. It solves the common issue where Nginx disconnects when serving large files through Discuz, while small files work fine.

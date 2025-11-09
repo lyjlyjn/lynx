@@ -82,3 +82,14 @@ server.log
 
 # Docker
 docker-compose.override.yml
+
+# Windows-specific
+service_wrapper.bat
+*.exe
+*.msi
+nssm.exe
+nssm/
+
+# Environment and config
+.env
+config.ini

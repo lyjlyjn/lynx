@@ -360,11 +360,155 @@ See the `examples/` directory for client libraries:
 - Python client: `examples/python_client.py`
 - JavaScript/HTML: `examples/video_player.html`
 - cURL examples: `examples/curl_examples.sh`
+- Discuz integration: `examples/discuz/` - PHP integration for Discuz forums
+
+---
+
+## Windows-Specific Examples
+
+### PowerShell
+
+```powershell
+# Get file list
+$response = Invoke-RestMethod -Uri "http://localhost:8000/api/files/list" `
+    -Method Get `
+    -Headers @{Authorization = "Basic " + [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("username:password"))}
+
+# Stream file
+Invoke-WebRequest -Uri "http://localhost:8000/api/stream/videos/movie.mp4" `
+    -OutFile "C:\Downloads\movie.mp4" `
+    -Headers @{Authorization = "Basic " + [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("username:password"))}
+
+# Stream with range
+$headers = @{
+    Authorization = "Basic " + [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("username:password"))
+    Range = "bytes=0-1048575"
+}
+Invoke-WebRequest -Uri "http://localhost:8000/api/stream/videos/movie.mp4" `
+    -OutFile "C:\Downloads\chunk.mp4" `
+    -Headers $headers
+```
+
+### Batch Script
+
+```batch
+@echo off
+REM Download file using curl (install from https://curl.se/)
+curl -u username:password http://localhost:8000/api/stream/videos/movie.mp4 -o movie.mp4
+
+REM Download with progress
+curl -u username:password -# http://localhost:8000/api/stream/videos/movie.mp4 -o movie.mp4
+
+REM Resume download
+curl -u username:password -C - http://localhost:8000/api/stream/videos/movie.mp4 -o movie.mp4
+```
+
+### C# (.NET)
+
+```csharp
+using System;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Text;
+using System.Threading.Tasks;
+
+class Program
+{
+    static async Task Main()
+    {
+        using var client = new HttpClient();
+        
+        // Set base URL
+        client.BaseAddress = new Uri("http://localhost:8000");
+        
+        // Set authentication
+        var credentials = Convert.ToBase64String(
+            Encoding.ASCII.GetBytes("username:password"));
+        client.DefaultRequestHeaders.Authorization = 
+            new AuthenticationHeaderValue("Basic", credentials);
+        
+        // Get file list
+        var response = await client.GetAsync("/api/files/list");
+        var content = await response.Content.ReadAsStringAsync();
+        Console.WriteLine(content);
+        
+        // Download file
+        var fileResponse = await client.GetAsync("/api/stream/videos/movie.mp4");
+        using var fileStream = await fileResponse.Content.ReadAsStreamAsync();
+        using var outputFile = File.Create("movie.mp4");
+        await fileStream.CopyToAsync(outputFile);
+    }
+}
+```
+
+### VBScript (Legacy)
+
+```vbscript
+' Download file using WinHTTP
+Dim http, stream
+Set http = CreateObject("WinHttp.WinHttpRequest.5.1")
+
+' Configure authentication
+http.Open "GET", "http://localhost:8000/api/stream/videos/movie.mp4", False
+http.SetCredentials "username", "password", 0
+
+' Send request
+http.Send
+
+' Save to file
+Set stream = CreateObject("ADODB.Stream")
+stream.Type = 1  ' Binary
+stream.Open
+stream.Write http.ResponseBody
+stream.SaveToFile "movie.mp4", 2
+stream.Close
+
+WScript.Echo "Download complete"
+```
+
+---
+
+## Discuz Integration
+
+For integrating with Discuz forums, see the comprehensive examples in `examples/discuz/`:
+
+- `streaming_integration.php` - Complete PHP integration library
+- `streaming_proxy.php` - Proxy script for secure streaming
+- `README.md` - Detailed integration guide
+
+**Key features:**
+- Authentication with streaming server
+- Range request support for resumable downloads
+- Video player integration
+- File browser integration
+- Security and permission checks
+
+**Quick example:**
+
+```php
+<?php
+require_once 'examples/discuz/streaming_integration.php';
+
+// Display video player
+echo render_video_player('videos/movie.mp4');
+
+// Display download link
+echo render_download_link('documents/file.pdf');
+
+// Get file information
+$info = get_file_info('videos/movie.mp4');
+echo "Size: " . format_bytes($info['size']);
+?>
+```
+
+See `examples/discuz/README.md` for complete documentation.
 
 ---
 
 ## Support
 
 For issues and questions:
-- GitHub Issues: https://github.com/lyjlyjn/lynx/issues
-- Documentation: See DEPLOYMENT.md
+- **GitHub Issues**: https://github.com/lyjlyjn/lynx/issues
+- **Documentation**: See DEPLOYMENT.md and WINDOWS_README.md
+- **Windows Setup**: See WINDOWS_SERVICE_GUIDE.md
+- **Discuz Integration**: See examples/discuz/README.md

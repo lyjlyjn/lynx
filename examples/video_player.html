@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CloudDrive2 Video Player</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        
+        h1 {
+            color: #333;
+        }
+        
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .input-group {
+            margin-bottom: 20px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        
+        input[type="text"] {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        
+        button {
+            background: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        
+        button:hover {
+            background: #45a049;
+        }
+        
+        video {
+            width: 100%;
+            max-width: 100%;
+            background: black;
+            border-radius: 4px;
+        }
+        
+        .info {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f9f9f9;
+            border-left: 4px solid #4CAF50;
+            border-radius: 4px;
+        }
+        
+        .info h3 {
+            margin-top: 0;
+        }
+        
+        .error {
+            color: #d32f2f;
+            padding: 15px;
+            background: #ffebee;
+            border-radius: 4px;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>CloudDrive2 Video Player</h1>
+    
+    <div class="container">
+        <div class="input-group">
+            <label for="apiUrl">API Base URL:</label>
+            <input type="text" id="apiUrl" value="http://localhost:8000" placeholder="http://localhost:8000">
+        </div>
+        
+        <div class="input-group">
+            <label for="filePath">File Path:</label>
+            <input type="text" id="filePath" value="/videos/sample.mp4" placeholder="/videos/sample.mp4">
+        </div>
+        
+        <div class="input-group">
+            <label for="username">Username (optional):</label>
+            <input type="text" id="username" placeholder="Username">
+        </div>
+        
+        <div class="input-group">
+            <label for="password">Password (optional):</label>
+            <input type="text" id="password" placeholder="Password">
+        </div>
+        
+        <button onclick="loadVideo()">Load Video</button>
+        
+        <div id="playerContainer" style="margin-top: 20px; display: none;">
+            <video id="videoPlayer" controls>
+                Your browser does not support the video tag.
+            </video>
+        </div>
+        
+        <div id="info" class="info" style="display: none;"></div>
+        <div id="error" class="error" style="display: none;"></div>
+    </div>
+    
+    <script>
+        async function loadVideo() {
+            const apiUrl = document.getElementById('apiUrl').value.trim();
+            const filePath = document.getElementById('filePath').value.trim();
+            const username = document.getElementById('username').value.trim();
+            const password = document.getElementById('password').value.trim();
+            
+            const errorDiv = document.getElementById('error');
+            const infoDiv = document.getElementById('info');
+            const playerContainer = document.getElementById('playerContainer');
+            const videoPlayer = document.getElementById('videoPlayer');
+            
+            // Hide previous messages
+            errorDiv.style.display = 'none';
+            infoDiv.style.display = 'none';
+            playerContainer.style.display = 'none';
+            
+            if (!apiUrl || !filePath) {
+                showError('Please provide both API URL and file path');
+                return;
+            }
+            
+            try {
+                // Get file info
+                const infoUrl = `${apiUrl}/api/files/info${filePath}`;
+                const headers = {};
+                
+                if (username && password) {
+                    const auth = btoa(`${username}:${password}`);
+                    headers['Authorization'] = `Basic ${auth}`;
+                }
+                
+                const infoResponse = await fetch(infoUrl, { headers });
+                
+                if (!infoResponse.ok) {
+                    throw new Error(`Failed to get file info: ${infoResponse.status} ${infoResponse.statusText}`);
+                }
+                
+                const fileInfo = await infoResponse.json();
+                
+                // Check if file is streamable
+                if (!fileInfo.is_streamable) {
+                    showError('File is not a streamable media file');
+                    return;
+                }
+                
+                // Display file info
+                showInfo(fileInfo);
+                
+                // Load video
+                const streamUrl = `${apiUrl}/api/stream${filePath}`;
+                videoPlayer.src = streamUrl;
+                playerContainer.style.display = 'block';
+                
+                // Try to get metadata
+                try {
+                    const metadataUrl = `${apiUrl}/api/stream${filePath}/metadata`;
+                    const metadataResponse = await fetch(metadataUrl, { headers });
+                    
+                    if (metadataResponse.ok) {
+                        const metadata = await metadataResponse.json();
+                        if (metadata) {
+                            showMetadata(metadata);
+                        }
+                    }
+                } catch (e) {
+                    console.log('Could not load metadata:', e);
+                }
+                
+            } catch (error) {
+                showError(error.message);
+            }
+        }
+        
+        function showInfo(fileInfo) {
+            const infoDiv = document.getElementById('info');
+            const sizeInMB = (fileInfo.size / (1024 * 1024)).toFixed(2);
+            
+            infoDiv.innerHTML = `
+                <h3>File Information</h3>
+                <p><strong>Name:</strong> ${fileInfo.name}</p>
+                <p><strong>Size:</strong> ${sizeInMB} MB</p>
+                <p><strong>Type:</strong> ${fileInfo.type}</p>
+                <p><strong>Extension:</strong> ${fileInfo.extension}</p>
+                <p><strong>MIME Type:</strong> ${fileInfo.mime_type}</p>
+                <p><strong>Modified:</strong> ${new Date(fileInfo.modified).toLocaleString()}</p>
+            `;
+            infoDiv.style.display = 'block';
+        }
+        
+        function showMetadata(metadata) {
+            const infoDiv = document.getElementById('info');
+            
+            let metadataHtml = '<h3>Media Metadata</h3>';
+            
+            if (metadata.duration) {
+                const minutes = Math.floor(metadata.duration / 60);
+                const seconds = Math.floor(metadata.duration % 60);
+                metadataHtml += `<p><strong>Duration:</strong> ${minutes}:${seconds.toString().padStart(2, '0')}</p>`;
+            }
+            
+            if (metadata.width && metadata.height) {
+                metadataHtml += `<p><strong>Resolution:</strong> ${metadata.width}x${metadata.height}</p>`;
+            }
+            
+            if (metadata.codec) {
+                metadataHtml += `<p><strong>Video Codec:</strong> ${metadata.codec}</p>`;
+            }
+            
+            if (metadata.audio_codec) {
+                metadataHtml += `<p><strong>Audio Codec:</strong> ${metadata.audio_codec}</p>`;
+            }
+            
+            if (metadata.bitrate) {
+                const bitrateKbps = Math.floor(metadata.bitrate / 1000);
+                metadataHtml += `<p><strong>Bitrate:</strong> ${bitrateKbps} kbps</p>`;
+            }
+            
+            infoDiv.innerHTML += metadataHtml;
+        }
+        
+        function showError(message) {
+            const errorDiv = document.getElementById('error');
+            errorDiv.textContent = `Error: ${message}`;
+            errorDiv.style.display = 'block';
+        }
+        
+        // Handle video errors
+        document.addEventListener('DOMContentLoaded', () => {
+            const videoPlayer = document.getElementById('videoPlayer');
+            
+            videoPlayer.addEventListener('error', (e) => {
+                showError('Failed to load video. Check the file path and permissions.');
+            });
+        });
+    </script>
+</body>
+</html>

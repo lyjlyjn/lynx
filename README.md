@@ -20,11 +20,39 @@ This application provides a robust solution for streaming large files from Cloud
 - ✅ **Async I/O**: High-performance asynchronous file operations
 - ✅ **Caching**: Intelligent metadata caching for improved performance
 - ✅ **Docker Support**: Easy deployment with Docker and docker-compose
+- ✅ **Windows Server Support**: Native Windows Service, batch scripts, and firewall configuration
+- ✅ **Discuz Integration**: Ready-to-use PHP integration for Discuz forums
 - ✅ **Multiple Formats**: Support for video, audio, and document files
 
 ## Quick Start
 
-### Using Docker (Recommended)
+> 🪟 **Windows Server Users**: See [WINDOWS_README.md](WINDOWS_README.md) for Windows-specific installation guide
+
+### Windows Server Installation
+
+1. Install dependencies:
+```batch
+install.bat
+```
+
+2. Configure application:
+```batch
+setup.bat
+```
+
+3. Start server:
+```batch
+start.bat
+```
+
+Or install as Windows Service:
+```batch
+install_service.bat
+```
+
+See [WINDOWS_README.md](WINDOWS_README.md) for comprehensive Windows Server guide.
+
+### Using Docker (Recommended for Linux)
 
 1. Edit `docker-compose.yml` to set your CloudDrive2 mount path:
 ```yaml
@@ -62,8 +90,11 @@ python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 ## Documentation
 
+- **Windows Server Guide**: See [WINDOWS_README.md](WINDOWS_README.md) for Windows-specific setup
+- **Windows Service Setup**: See [WINDOWS_SERVICE_GUIDE.md](WINDOWS_SERVICE_GUIDE.md) for service configuration
 - **Deployment Guide**: See [DEPLOYMENT.md](DEPLOYMENT.md) for detailed deployment instructions
-- **API Documentation**: Visit `http://localhost:8000/docs` when running
+- **API Documentation**: See [API.md](API.md) or visit `http://localhost:8000/docs` when running
+- **Discuz Integration**: See [examples/discuz/](examples/discuz/) for PHP integration examples
 - **Examples**: Check the `examples/` directory for client code examples
 
 ## Project Structure

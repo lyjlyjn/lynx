@@ -75,14 +75,22 @@ class FileService:
         Uses CloudDrive2-compatible path operations that don't rely on
         Path.resolve() which fails on virtual filesystems with OSError [WinError 1005].
         
+        SECURITY: This function accepts user-provided paths (by design for file streaming).
+        Directory traversal attacks are prevented by:
+        1. Normalizing paths to resolve .. and . components (via normalize_path)
+        2. Validating the normalized path starts with the mount directory
+        3. Raising PermissionError if path escapes mount directory
+        
+        CodeQL path-injection warnings are expected and safe due to this validation.
+        
         Args:
-            relative_path: Relative path within mount directory
+            relative_path: Relative path within mount directory (user-provided)
             
         Returns:
             Safe absolute path as string
             
         Raises:
-            PermissionError: If path is outside mount directory
+            PermissionError: If path is outside mount directory (security check)
         """
         # Remove leading slash and construct full path
         clean_path = relative_path.lstrip('/')
@@ -90,6 +98,7 @@ class FileService:
         if settings.clouddrive2_compat_mode:
             # Use os.path operations for CloudDrive2 compatibility
             full_path = os.path.join(self.mount_path, clean_path)
+            # normalize_path resolves .. and . to prevent traversal
             full_path = normalize_path(full_path, use_resolve=False)
             
             # Normalize mount path for comparison (without resolve)
@@ -98,6 +107,7 @@ class FileService:
             # Standard Path.resolve() (may fail on CloudDrive2)
             full_path_obj = Path(self.mount_path) / clean_path
             try:
+                # Path.resolve() also resolves .. and . components
                 full_path = str(full_path_obj.resolve())
                 normalized_mount = str(Path(self.mount_path).resolve())
             except OSError as e:
@@ -110,7 +120,7 @@ class FileService:
                 full_path = normalize_path(full_path, use_resolve=False)
                 normalized_mount = normalize_path(self.mount_path, use_resolve=False)
         
-        # Ensure path is within mount directory (prevent directory traversal)
+        # SECURITY CHECK: Ensure path is within mount directory (prevent directory traversal)
         # Use string comparison for CloudDrive2 compatibility
         full_path_normalized = full_path.replace('\\', '/').rstrip('/')
         mount_normalized = normalized_mount.replace('\\', '/').rstrip('/')

@@ -1,4 +1,18 @@
-"""Utility functions for safe path operations with CloudDrive2 compatibility."""
+"""Utility functions for safe path operations with CloudDrive2 compatibility.
+
+SECURITY NOTE: Functions in this module accept user-provided paths by design,
+as this is a file streaming service. Path injection warnings from CodeQL are
+expected. Security is maintained through:
+
+1. Path normalization (resolves .. and . components)
+2. Validation in FileService._get_safe_path() that ensures paths stay within mount
+3. No execution of user paths - only file read operations
+
+The path operations in this module are safe wrappers that:
+- Provide CloudDrive2 virtual filesystem compatibility
+- Fall back to os.path operations when Path methods fail
+- Do not introduce security vulnerabilities when used with proper validation
+"""
 import os
 import logging
 from pathlib import Path

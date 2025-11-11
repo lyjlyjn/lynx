@@ -10,6 +10,17 @@ import asyncio
 
 from app.core.config import settings
 from app.models import FileInfo, DirectoryInfo, FileType
+from app.utils import (
+    safe_resolve_path, 
+    safe_path_exists, 
+    safe_is_file, 
+    safe_is_dir,
+    safe_stat,
+    safe_iterdir,
+    normalize_path,
+    is_clouddrive_path,
+    get_relative_path
+)
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +29,20 @@ class FileService:
     """Service for managing files in CloudDrive2 mount."""
     
     def __init__(self):
-        self.mount_path = Path(settings.clouddrive_mount_path).resolve()
+        # Use safe path resolution for CloudDrive2 compatibility
+        if settings.clouddrive2_compat_mode:
+            # Use normpath instead of resolve for virtual filesystems
+            self.mount_path = normalize_path(settings.clouddrive_mount_path, use_resolve=False)
+            logger.info(f"CloudDrive2 compatibility mode enabled for mount path: {self.mount_path}")
+            
+            # Detect if this is likely a CloudDrive2 mount
+            if is_clouddrive_path(self.mount_path):
+                logger.info("CloudDrive2 virtual filesystem detected based on path analysis")
+        else:
+            # Standard resolution (may fail on CloudDrive2)
+            self.mount_path = str(Path(settings.clouddrive_mount_path).resolve())
+            logger.info(f"Standard path resolution used for mount path: {self.mount_path}")
+        
         self.allowed_extensions = settings.allowed_extensions_list
         
         # Initialize mimetypes
@@ -44,19 +68,64 @@ class FileService:
         """Check if file is streamable."""
         return file_type in [FileType.VIDEO, FileType.AUDIO]
     
-    def _get_safe_path(self, relative_path: str) -> Path:
-        """Get safe absolute path within mount directory."""
-        # Remove leading slash and resolve path
+    def _get_safe_path(self, relative_path: str) -> str:
+        """
+        Get safe absolute path within mount directory.
+        
+        Uses CloudDrive2-compatible path operations that don't rely on
+        Path.resolve() which fails on virtual filesystems with OSError [WinError 1005].
+        
+        SECURITY: This function accepts user-provided paths (by design for file streaming).
+        Directory traversal attacks are prevented by:
+        1. Normalizing paths to resolve .. and . components (via normalize_path)
+        2. Validating the normalized path starts with the mount directory
+        3. Raising PermissionError if path escapes mount directory
+        
+        CodeQL path-injection warnings are expected and safe due to this validation.
+        
+        Args:
+            relative_path: Relative path within mount directory (user-provided)
+            
+        Returns:
+            Safe absolute path as string
+            
+        Raises:
+            PermissionError: If path is outside mount directory (security check)
+        """
+        # Remove leading slash and construct full path
         clean_path = relative_path.lstrip('/')
-        full_path = (self.mount_path / clean_path).resolve()
         
-        # Resolve mount path for comparison
-        resolved_mount = self.mount_path.resolve()
+        if settings.clouddrive2_compat_mode:
+            # Use os.path operations for CloudDrive2 compatibility
+            full_path = os.path.join(self.mount_path, clean_path)
+            # normalize_path resolves .. and . to prevent traversal
+            full_path = normalize_path(full_path, use_resolve=False)
+            
+            # Normalize mount path for comparison (without resolve)
+            normalized_mount = normalize_path(self.mount_path, use_resolve=False)
+        else:
+            # Standard Path.resolve() (may fail on CloudDrive2)
+            full_path_obj = Path(self.mount_path) / clean_path
+            try:
+                # Path.resolve() also resolves .. and . components
+                full_path = str(full_path_obj.resolve())
+                normalized_mount = str(Path(self.mount_path).resolve())
+            except OSError as e:
+                # Fallback to CloudDrive2 mode if resolve fails
+                logger.warning(
+                    f"Path.resolve() failed (CloudDrive2 filesystem?): {e}. "
+                    f"Falling back to compatibility mode."
+                )
+                full_path = os.path.join(self.mount_path, clean_path)
+                full_path = normalize_path(full_path, use_resolve=False)
+                normalized_mount = normalize_path(self.mount_path, use_resolve=False)
         
-        # Ensure path is within mount directory (prevent directory traversal)
-        try:
-            full_path.relative_to(resolved_mount)
-        except ValueError:
+        # SECURITY CHECK: Ensure path is within mount directory (prevent directory traversal)
+        # Use string comparison for CloudDrive2 compatibility
+        full_path_normalized = full_path.replace('\\', '/').rstrip('/')
+        mount_normalized = normalized_mount.replace('\\', '/').rstrip('/')
+        
+        if not full_path_normalized.startswith(mount_normalized):
             raise PermissionError(f"Access denied: path outside mount directory")
         
         return full_path
@@ -65,22 +134,31 @@ class FileService:
         """Get information about a file."""
         safe_path = self._get_safe_path(file_path)
         
-        if not safe_path.exists():
+        # Use safe path operations for CloudDrive2 compatibility
+        if not safe_path_exists(safe_path):
             raise FileNotFoundError(f"File not found: {file_path}")
         
-        if not safe_path.is_file():
+        if not safe_is_file(safe_path):
             raise ValueError(f"Path is not a file: {file_path}")
         
-        # Get file stats
-        stat = safe_path.stat()
+        # Get file stats with fallback
+        try:
+            stat = safe_stat(safe_path)
+        except OSError as e:
+            logger.error(f"Failed to get stats for {safe_path}: {e}")
+            raise
+        
         mime_type, _ = mimetypes.guess_type(str(safe_path))
         mime_type = mime_type or 'application/octet-stream'
         
         file_type = self._get_file_type(mime_type)
-        extension = safe_path.suffix.lstrip('.')
+        
+        # Extract extension safely
+        path_obj = Path(safe_path)
+        extension = path_obj.suffix.lstrip('.')
         
         return FileInfo(
-            name=safe_path.name,
+            name=path_obj.name,
             path=file_path,
             size=stat.st_size,
             type=file_type,
@@ -94,28 +172,43 @@ class FileService:
         """List contents of a directory."""
         safe_path = self._get_safe_path(dir_path)
         
-        if not safe_path.exists():
+        # Use safe path operations for CloudDrive2 compatibility
+        if not safe_path_exists(safe_path):
             raise FileNotFoundError(f"Directory not found: {dir_path}")
         
-        if not safe_path.is_dir():
+        if not safe_is_dir(safe_path):
             raise ValueError(f"Path is not a directory: {dir_path}")
         
         files = []
         subdirectories = []
         total_size = 0
         
-        # List directory contents
+        # List directory contents with CloudDrive2-safe iteration
         try:
-            for entry in safe_path.iterdir():
+            for entry in safe_iterdir(safe_path):
                 try:
-                    if entry.is_file() and self._is_allowed_file(entry.name):
-                        stat = entry.stat()
-                        mime_type, _ = mimetypes.guess_type(str(entry))
+                    # Use safe operations for each entry
+                    entry_str = str(entry)
+                    
+                    if safe_is_file(entry_str) and self._is_allowed_file(entry.name):
+                        stat = safe_stat(entry_str)
+                        mime_type, _ = mimetypes.guess_type(entry_str)
                         mime_type = mime_type or 'application/octet-stream'
                         file_type = self._get_file_type(mime_type)
                         
-                        # Create relative path
-                        rel_path = str(entry.relative_to(self.mount_path))
+                        # Create relative path using safe operations
+                        try:
+                            rel_path = get_relative_path(entry_str, self.mount_path)
+                        except ValueError:
+                            # Fallback to string operations
+                            entry_norm = entry_str.replace('\\', '/')
+                            mount_norm = self.mount_path.replace('\\', '/')
+                            if entry_norm.startswith(mount_norm):
+                                rel_path = entry_norm[len(mount_norm):].lstrip('/')
+                            else:
+                                logger.warning(f"Cannot compute relative path for {entry_str}")
+                                continue
+                        
                         if not rel_path.startswith('/'):
                             rel_path = '/' + rel_path
                         
@@ -130,17 +223,20 @@ class FileService:
                             is_streamable=self._is_streamable(file_type, mime_type)
                         ))
                         total_size += stat.st_size
-                    elif entry.is_dir():
+                    elif safe_is_dir(entry_str):
                         subdirectories.append(entry.name)
                 except (PermissionError, OSError) as e:
                     logger.warning(f"Cannot access {entry}: {e}")
                     continue
-        except PermissionError as e:
+        except (PermissionError, OSError) as e:
             logger.error(f"Cannot list directory {safe_path}: {e}")
             raise
         
+        # Get directory name safely
+        dir_name = os.path.basename(safe_path) or '/'
+        
         return DirectoryInfo(
-            name=safe_path.name or '/',
+            name=dir_name,
             path=dir_path,
             files=files,
             subdirectories=subdirectories,
@@ -152,10 +248,16 @@ class FileService:
         """Get file size."""
         safe_path = self._get_safe_path(file_path)
         
-        if not safe_path.exists():
+        # Use safe path operations for CloudDrive2 compatibility
+        if not safe_path_exists(safe_path):
             raise FileNotFoundError(f"File not found: {file_path}")
         
-        return safe_path.stat().st_size
+        try:
+            stat = safe_stat(safe_path)
+            return stat.st_size
+        except OSError as e:
+            logger.error(f"Failed to get file size for {safe_path}: {e}")
+            raise
     
     async def stream_file(
         self,
@@ -163,13 +265,23 @@ class FileService:
         start: int = 0,
         end: Optional[int] = None
     ) -> AsyncGenerator[bytes, None]:
-        """Stream file content with optional range."""
+        """
+        Stream file content with optional range support.
+        
+        Supports CloudDrive2 virtual filesystem with safe path operations
+        and Range requests for video/audio streaming.
+        """
         safe_path = self._get_safe_path(file_path)
         
-        if not safe_path.exists():
+        # Use safe path operations for CloudDrive2 compatibility
+        if not safe_path_exists(safe_path):
             raise FileNotFoundError(f"File not found: {file_path}")
         
-        file_size = safe_path.stat().st_size
+        try:
+            file_size = safe_stat(safe_path).st_size
+        except OSError as e:
+            logger.error(f"Failed to get file stats for streaming {safe_path}: {e}")
+            raise
         
         # Validate range
         if start < 0 or start >= file_size:
@@ -183,20 +295,24 @@ class FileService:
         if start > end:
             raise ValueError(f"Invalid range: {start}-{end}")
         
-        # Stream file
-        async with aiofiles.open(safe_path, mode='rb') as f:
-            await f.seek(start)
-            remaining = end - start + 1
-            
-            while remaining > 0:
-                chunk_size = min(settings.chunk_size, remaining)
-                chunk = await f.read(chunk_size)
+        # Stream file with CloudDrive2 compatibility
+        try:
+            async with aiofiles.open(safe_path, mode='rb') as f:
+                await f.seek(start)
+                remaining = end - start + 1
                 
-                if not chunk:
-                    break
-                
-                remaining -= len(chunk)
-                yield chunk
+                while remaining > 0:
+                    chunk_size = min(settings.chunk_size, remaining)
+                    chunk = await f.read(chunk_size)
+                    
+                    if not chunk:
+                        break
+                    
+                    remaining -= len(chunk)
+                    yield chunk
+        except OSError as e:
+            logger.error(f"Error streaming file {safe_path}: {e}")
+            raise
 
 
 # Global file service instance

@@ -63,6 +63,21 @@ class Settings(BaseSettings):
     redis_port: int = Field(default=6379, env="REDIS_PORT")
     redis_db: int = Field(default=0, env="REDIS_DB")
     
+    # CloudDrive2 Virtual Filesystem Compatibility
+    clouddrive2_compat_mode: bool = Field(
+        default=True, 
+        env="CLOUDDRIVE2_COMPAT_MODE",
+        description="Enable CloudDrive2 virtual filesystem compatibility. "
+                    "When enabled, uses os.path.normpath instead of Path.resolve() "
+                    "to avoid OSError [WinError 1005] on Windows virtual filesystems."
+    )
+    filesystem_fallback_enabled: bool = Field(
+        default=True,
+        env="FILESYSTEM_FALLBACK_ENABLED",
+        description="Enable fallback to os.path operations when Path methods fail. "
+                    "Recommended for CloudDrive2 and other virtual filesystems."
+    )
+    
     @property
     def allowed_extensions_list(self) -> List[str]:
         """Get allowed extensions as a list."""

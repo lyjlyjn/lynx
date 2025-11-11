@@ -175,6 +175,7 @@ def normalize_path(path: Union[str, Path], use_resolve: bool = False) -> str:
     Normalize a path using the most compatible method.
     
     For CloudDrive2 compatibility, defaults to os.path.normpath instead of Path.resolve().
+    This function properly handles .. and . components while avoiding Path.resolve().
     
     Args:
         path: Path to normalize
@@ -189,7 +190,10 @@ def normalize_path(path: Union[str, Path], use_resolve: bool = False) -> str:
         return safe_resolve_path(path_str, fallback_to_normpath=True)
     else:
         # Direct normpath for best CloudDrive2 compatibility
-        return os.path.normpath(os.path.abspath(path_str))
+        # First make it absolute, then normalize to resolve .. and .
+        abs_path = os.path.abspath(path_str)
+        normalized = os.path.normpath(abs_path)
+        return normalized
 
 
 def is_clouddrive_path(path: Union[str, Path]) -> bool:
